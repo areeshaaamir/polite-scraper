@@ -1,11 +1,12 @@
 import requests
 from pathlib import Path
-
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+import time
 
 URL = "https://books.toscrape.com/"
 
 CACHE_DIR = Path("cache")
-CACHE_FILE = CACHE_DIR / "catalogue-page-1.html"
 
 HEADERS = {
     "User-Agent": "FlyRankInternship-A9/1.0"
@@ -14,19 +15,19 @@ HEADERS = {
 TIMEOUT = 10
 
 
-def fetch_page():
-    if CACHE_FILE.exists():
-        html = CACHE_FILE.read_text(encoding="utf-8")
+def fetch_page(page_url, cache_file):
+    if cache_file.exists():
+        html = cache_file.read_text(encoding="utf-8")
 
-        print("CACHE HIT")
+        print(f"CACHE HIT:", {page_url})
         print(f"response_size={len(html)}")
 
         return html
     
-    print("FETCH")
+    print(f"FETCH: ", {page_url})
 
     response = requests.get(
-        URL,
+        page_url,
         headers=HEADERS,
         timeout=TIMEOUT
     )
@@ -40,15 +41,93 @@ def fetch_page():
 
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    CACHE_FILE.write_text(
+    cache_file.write_text(
         html,
         encoding="utf-8"
     )
 
-    print(f"response_size={len(html)}")
-
     return html
 
+def get_books(html, page_url):
+    
+    soup = BeautifulSoup(html, "html.parser")
+    
+    links = []
+    
+    for article in soup.select("article.product_pod"):
+        
+        link = article.find("a")
+        
+        if link and link.get("href"):
+            href = link["href"]
+            absolute_url = urljoin(page_url, href)
+            links.append(absolute_url)
+            
+    return links
 
+def get_next_page(html, page_url):
+    
+    soup = BeautifulSoup(html, "html.parser")
+    
+    next_link = soup.select_one("li.next a")
+    
+    if next_link and next_link.get("href"):
+        href = next_link["href"]
+        
+        return urljoin(page_url, href)
+    
+    return None
+
+def discover_books():
+    all_urls = []
+    
+    current = URL
+    page = 1
+    
+    while page <= 3:
+        cache_file = CACHE_DIR / f"catalogue-page-{page}.html"
+        
+        html = fetch_page(
+            current,
+            cache_file
+        )
+        
+        book_urls = get_books(
+            html,
+            current
+        )
+        
+        all_urls.extend(book_urls)
+        
+        print(
+            f"page {page}: "
+            f"found {len(book_urls)} books"
+        )
+        
+        if page == 3:
+            break
+        
+        next_url = get_next_page(
+            html,
+            current
+        )
+        
+        if next_url is None:
+            break
+
+        current = next_url
+        page += 1
+
+        time.sleep(0.5)
+
+    unique_urls = list(dict.fromkeys(all_urls))
+
+    print()
+    print(f"catalogue_pages={page}")
+    print(f"discovered={len(all_urls)}")
+    print(f"unique_urls={len(unique_urls)}")
+
+    return unique_urls
+    
 if __name__ == "__main__":
-    fetch_page()
+    discover_books()
